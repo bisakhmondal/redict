@@ -12,7 +12,7 @@ type Container struct {
 
 func NewContainer() *Container{
 	return &Container{
-		list: nil,
+		list: map[int]*Namespace{},
 	}
 }
 
@@ -20,6 +20,14 @@ func (c * Container) Push(n* Namespace){
 	c.Lock()
 	defer c .Unlock()
 	c.list[n.uid] = n
+}
+
+func (c* Container) Delete (n *Namespace){
+	c.Lock()
+	defer c.Unlock()
+
+	delete(c.list, n.uid)
+
 }
 
 //if Manager wants to demote its role to a particular User

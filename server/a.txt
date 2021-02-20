@@ -1,0 +1,16 @@
+close
+close
+stats
+upgrade redict
+stats
+get hello
+put hello world
+get hello
+stats
+put hello bisakh
+get hello
+get hello
+put hello world
+get hello
+close
+close
