@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 const (
 	PORT = "5000"
@@ -84,6 +85,7 @@ func parseArgs(conn net.Conn){
 			i++
 			fmt.Println("unknown initializer: ", os.Args[i])
 		}
+		time.Sleep(50*time.Millisecond)
 	}
 }
 
