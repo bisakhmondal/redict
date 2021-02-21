@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"redict/server/namespace"
 	"redict/server/persistence"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 //Access Privileges
@@ -23,18 +27,49 @@ const (
 	ManagerSecret = "redict"
 )
 
-var clientAttached = 0
-var pool *namespace.Container
+var (
+	clientAttached = 0
+	pool *namespace.Container
+	rdb *persistence.RDB
 
+)
+
+func CatchSignal() {
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	go func() {
+		<-sigc
+		//Tell server to close the thread assigned to this particular client
+		rdb.Quit()
+		time.Sleep(1*time.Second)
+		os.Exit(0)
+	}()
+}
 
 func main(){
 	pool = namespace.NewContainer()
-	var rdb *persistence.RDB = nil //persistence.RDBInit()
+	rdb = persistence.RDBInit()
 
+	//restore file specified
+	if len(os.Args) >1 {
+		if _, err := os.Stat(os.Args[1]); os.IsNotExist(err) {
+			log.Println("Backup file does not exists")
+			panic(err)
+		}
+		rdbDump := persistence.NewRDB()
+		rdbDump.LoadDump(os.Args[1])
+		log.Println(len(rdbDump.GetQueue().Items))
+		clientAttached = pool.Restore(rdbDump.GetQueue(), rdb)
+		log.Println("Dump Restored Successfully")
+	}
+
+	CatchSignal()
 
 	server, err := net.Listen("tcp", ":"+PORT)
-
-
 	defer server.Close()
 
 	if err != nil{
@@ -60,13 +95,13 @@ func handleClient(conn net.Conn, namespace *namespace.Namespace){
 	defer conn.Close()
 
 	roleAssigned := user
-	log.Println("Client ", clientAttached)
+	log.Println("Client ID: ", namespace.GetUID())
 	buffer := make([]byte, BUFFERSIZE)
 	for {
 		n,_ := conn.Read(buffer)
 		command := string(buffer[:n])
 		commandArr := strings.Split(command," ")
-		fmt.Println(command)
+		log.Println(command)
 
 		switch strings.ToLower(commandArr[0]) {
 		case "put":

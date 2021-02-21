@@ -1,8 +1,8 @@
 package persistence
 
 import (
-	"compress/gzip"
-	"encoding/gob"
+	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -13,28 +13,33 @@ type RDB struct {
 	ticker *time.Ticker //snapshotting period
 	queue *Queue //thread safe queue
 	quit chan struct{}
-	fid *os.File
 }
 
 func NewRDB() *RDB{
 	return &RDB{
-		filename: time.Now().Format(time.RFC3339)+".log",
+		filename: "snapshots/"+time.Now().Format(time.RFC3339)+".json",
 		ticker:   time.NewTicker(time.Second),
 		queue:    newQueue(),
 		quit: make(chan struct{}),
 	}
 }
 
+//Get Queue
+func (r * RDB)GetQueue() *Queue{
+	return r.queue
+}
+
 //Initialize for fresh Dump
 func RDBInit () * RDB{
 	rdb := NewRDB()
 	var err error
-	rdb.fid, err = os.Create(rdb.filename)
+	f , err := os.Create(rdb.filename)
+	defer f.Close()
 
 	if err!= nil {
 		panic(err)
 	}
-	
+
 	go func() {
 		log.Println("Concurrent Backup Initiated")
 		for{
@@ -52,22 +57,23 @@ func RDBInit () * RDB{
 	return rdb
 }
 
-//API for appending each individual transaction
+//API for appending each individual Transaction
 func (rdb *RDB) WriteTransaction(uid int, key, value string){
 
-	rdb.queue.Push(transaction{
+	rdb.queue.Push(Transaction{
 		Uid: uid,
 		Key: key,
 		Value: value,
 	})
 }
 
-//function for write GZIP compressed transactions in file during snapshotting
+//function for write transactions in JSON during snapshotting
 func (rdb * RDB)periodicDumpContent(){
-	fz := gzip.NewWriter(rdb.fid)
-	defer fz.Close()
+	fid, err := os.OpenFile(rdb.filename , os.O_WRONLY|os.O_APPEND, 0600)
 
-	enc := gob.NewEncoder(fz)
+	if err!= nil{
+		panic(err)
+	}
 
 	for {
 		out := rdb.queue.Pop()
@@ -75,35 +81,40 @@ func (rdb * RDB)periodicDumpContent(){
 			return
 		}
 
-		err := enc.Encode(out)
+		data, err := Marshal(out.(Transaction))
+
 		if err != nil {
-			log.Printf("encoding error %+v\n", out.(transaction))
+			log.Printf("Marshalling error %+v\n", out.(Transaction))
 			return
 		}
+		io.Copy(fid, data)
 	}
 }
 
 //Load previous Storage Dump
 func (rdb *RDB) LoadDump(filename string) {
 	var err error
-	rdb.fid, err = os.Open(filename)
-	defer rdb.fid.Close()
+	fid , err := os.Open(filename)
+	defer fid.Close()
 
 	if err != nil{
 		panic(err)
 	}
 
-	fz, err := gzip.NewReader(rdb.fid)
-	defer fz.Close()
-	if err!= nil {
-		panic(err)
-	}
+	var t Transaction
+	dec := json.NewDecoder(fid)
 
-	dec := gob.NewDecoder(fz)
-
-	var t transaction
-
-	for res := dec.Decode(&t); res!= nil; {
+	for {
+		err = dec.Decode(&t)
+		if err != nil {
+			return
+		}
 		rdb.WriteTransaction(t.Uid, t.Key, t.Value)
 	}
+}
+
+//Function to shut down incremental Snapshotting
+func (rdb * RDB) Quit(){
+	rdb.ticker.Stop()
+	close(rdb.quit)
 }

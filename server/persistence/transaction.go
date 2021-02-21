@@ -1,6 +1,6 @@
 package persistence
 
-type transaction struct{
+type Transaction struct{
 	Uid int
 	Key, Value string
 }

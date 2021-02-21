@@ -2,6 +2,8 @@ package namespace
 
 import (
 	"fmt"
+	"log"
+	"redict/server/persistence"
 	"sync"
 )
 
@@ -84,4 +86,33 @@ func (c* Container)Put(key, value string){
 		namespace.Put(key, value)
 	}
 	c.Unlock()
+}
+
+//Initalize
+//Function to restore previous backup
+func (c * Container)Restore(q *persistence.Queue, rdb * persistence.RDB) int{
+	lastClient := -1
+
+	for {
+		entry := q.Pop()
+
+		if entry==nil{
+			break
+		}
+
+		item := entry.(persistence.Transaction)
+		_ , ok := c.list[item.Uid]
+		if !ok {
+			c.Push(New(item.Uid, rdb))
+		}
+		c.list[item.Uid].Put(item.Key, item.Value)
+
+		//update total client attached
+		if item.Uid > lastClient {
+			lastClient = item.Uid
+		}
+	}
+	log.Println("Previously Attched Clients", lastClient+1)
+
+	return lastClient + 1
 }
